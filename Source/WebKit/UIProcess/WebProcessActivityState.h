@@ -64,6 +64,7 @@ public:
 #endif
 
 #if ENABLE(WEB_PROCESS_SUSPENSION_DELAY)
+    void dropRecentlyVisibleActivity();
     void updateWebProcessSuspensionDelay();
     void takeAccessibilityActivityWhenInWindow();
     void takeAccessibilityActivity();
