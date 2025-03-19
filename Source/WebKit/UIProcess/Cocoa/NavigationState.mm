@@ -112,6 +112,14 @@ SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, WebKitSwift, WKMarketplaceKit)
 @end
 #endif
 
+#if USE(APPLE_INTERNAL_SDK) && __has_include(<WebKitAdditions/NavigationStateAdditions.mm>)
+#import <WebKitAdditions/NavigationStateAdditions.mm>
+#endif
+
+#if !defined(NAVIGATION_STATE_DECIDE_POLICY_FOR_NAVIGATION_ACTION_ADDITIONS)
+#define NAVIGATION_STATE_DECIDE_POLICY_FOR_NAVIGATION_ACTION_ADDITIONS
+#endif
+
 namespace WebKit {
 using namespace WebCore;
 
@@ -575,6 +583,8 @@ void NavigationState::NavigationClient::decidePolicyForNavigationAction(WebPageP
     bool subframeNavigation = navigationAction->targetFrame() && !navigationAction->targetFrame()->isMainFrame();
 
     RefPtr<API::WebsitePolicies> defaultWebsitePolicies = webPageProxy.configuration().protectedDefaultWebsitePolicies()->copy();
+
+    NAVIGATION_STATE_DECIDE_POLICY_FOR_NAVIGATION_ACTION_ADDITIONS;
 
     if (!m_navigationState || (!m_navigationState->m_navigationDelegateMethods.webViewDecidePolicyForNavigationActionDecisionHandler
         && !m_navigationState->m_navigationDelegateMethods.webViewDecidePolicyForNavigationActionWithPreferencesUserInfoDecisionHandler
