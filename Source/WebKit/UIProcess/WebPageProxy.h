@@ -2966,8 +2966,6 @@ private:
     void didFinishLoadForResource(WebCore::ResourceLoaderIdentifier, WebCore::FrameIdentifier, WebCore::ResourceError&&);
 #endif
 
-    bool shouldClosePreviousPage();
-
 #if ENABLE(MEDIA_STREAM)
     UserMediaPermissionRequestManagerProxy& userMediaPermissionRequestManager();
     Ref<UserMediaPermissionRequestManagerProxy> protectedUserMediaPermissionRequestManager();

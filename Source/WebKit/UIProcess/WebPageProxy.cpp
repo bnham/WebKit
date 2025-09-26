@@ -5282,7 +5282,7 @@ void WebPageProxy::commitProvisionalPage(IPC::Connection& connection, FrameIdent
         m_mainFrameWebsitePolicies = mainFrameWebsitePolicies->copy();
 
     // There is no way we'll be able to return to the page in the previous page so close it.
-    if (!didSuspendPreviousPage && shouldClosePreviousPage())
+    if (!didSuspendPreviousPage)
         send(Messages::WebPage::Close());
 
     const auto oldWebPageID = m_webPageID;
@@ -5293,11 +5293,6 @@ void WebPageProxy::commitProvisionalPage(IPC::Connection& connection, FrameIdent
     // FIXME: <rdar://121240770> This is a hack. There seems to be a bug in our interaction with WebPageInspectorController.
     if (!preferences->siteIsolationEnabled())
         m_inspectorController->didCommitProvisionalPage(oldWebPageID, m_webPageID);
-}
-
-bool WebPageProxy::shouldClosePreviousPage()
-{
-    return !protectedPreferences()->siteIsolationEnabled();
 }
 
 void WebPageProxy::destroyProvisionalPage()
