@@ -649,7 +649,7 @@ ValueOrException ScriptController::executeScriptInWorld(DOMWrapperWorld& world, 
         return makeUnexpected(ExceptionDetails { "Cannot execute JavaScript in this document"_s });
 
     auto sourceURL = parameters.sourceURL;
-    if (!sourceURL.isValid()) {
+    if (sourceURL.isEmpty()) {
         // FIXME: This is gross, but when setTimeout() and setInterval() are passed JS strings, the thrown errors should use the frame document URL (according to WPT).
         sourceURL = m_frame->document()->url();
     }

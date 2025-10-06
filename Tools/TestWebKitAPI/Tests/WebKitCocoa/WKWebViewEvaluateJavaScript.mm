@@ -148,6 +148,48 @@ TEST(WKWebView, EvaluateJavaScriptErrorCases)
     TestWebKitAPI::Util::run(&isDone);
 }
 
+TEST(WKWebView, EvaluateJavaScriptWithCustomSourceURL)
+{
+    RetainPtr<WKWebView> webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600)]);
+
+    NSURLRequest *request = [NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"]];
+    [webView loadRequest:request];
+    [webView _test_waitForDidFinishNavigation];
+
+    // The exception's source URL should be the main resource URL if no source URL is provided.
+    [webView evaluateJavaScript:@"\n\nthrow 'something bad'" completionHandler:^(id result, NSError *error) {
+        EXPECT_NULL(result);
+        EXPECT_WK_STREQ(@"WKErrorDomain", [error domain]);
+        EXPECT_EQ(WKErrorJavaScriptExceptionOccurred, [error code]);
+        EXPECT_WK_STREQ(@"something bad", [error.userInfo objectForKey:_WKJavaScriptExceptionMessageErrorKey]);
+        EXPECT_EQ(3, [[error.userInfo objectForKey:_WKJavaScriptExceptionLineNumberErrorKey] intValue]);
+        EXPECT_EQ(22, [[error.userInfo objectForKey:_WKJavaScriptExceptionColumnNumberErrorKey] intValue]);
+        EXPECT_TRUE([[[[error.userInfo objectForKey:_WKJavaScriptExceptionSourceURLErrorKey] path] lastPathComponent] isEqual:@"simple.html"]);
+
+        isDone = true;
+    }];
+
+    isDone = false;
+    TestWebKitAPI::Util::run(&isDone);
+
+    // The exception's source URL should be the custom source URL if provided.
+    [webView _evaluateJavaScript:@"\n\nthrow 'something bad'" withSourceURL:[NSURL URLWithString:@"foo.js"] inFrame:nil inContentWorld:WKContentWorld.pageWorld completionHandler:^(id result, NSError *error) {
+        EXPECT_NULL(result);
+        NSLog(@"error 2 is: %@", error);
+        EXPECT_WK_STREQ(@"WKErrorDomain", [error domain]);
+        EXPECT_EQ(WKErrorJavaScriptExceptionOccurred, [error code]);
+        EXPECT_WK_STREQ(@"something bad", [error.userInfo objectForKey:_WKJavaScriptExceptionMessageErrorKey]);
+        EXPECT_EQ(3, [[error.userInfo objectForKey:_WKJavaScriptExceptionLineNumberErrorKey] intValue]);
+        EXPECT_EQ(22, [[error.userInfo objectForKey:_WKJavaScriptExceptionColumnNumberErrorKey] intValue]);
+        EXPECT_TRUE([[[[error.userInfo objectForKey:_WKJavaScriptExceptionSourceURLErrorKey] path] lastPathComponent] isEqual:@"foo.js"]);
+
+        isDone = true;
+    }];
+
+    isDone = false;
+    TestWebKitAPI::Util::run(&isDone);
+}
+
 TEST(WKWebView, WKContentWorld)
 {
     EXPECT_NULL(WKContentWorld.pageWorld.name);
