@@ -119,6 +119,10 @@ public:
 
     virtual void destroyDecodedData(bool /*destroyAll*/ = true) { }
 
+#if USE(CG)
+    virtual void replaceEncodedDataAndDestroyDecodedData(Ref<FragmentedSharedBuffer>&& newEncodedData, bool destroyAll);
+#endif
+
     FragmentedSharedBuffer* data() { return m_encodedImageData.get(); }
     const FragmentedSharedBuffer* data() const { return m_encodedImageData.get(); }
     WEBCORE_EXPORT RefPtr<FragmentedSharedBuffer> protectedData() const;

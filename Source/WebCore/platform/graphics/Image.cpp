@@ -157,6 +157,18 @@ EncodedDataStatus Image::setData(RefPtr<FragmentedSharedBuffer>&& data, bool all
     return dataChanged(allDataReceived);
 }
 
+#if USE(CG)
+void Image::replaceEncodedDataAndDestroyDecodedData(Ref<FragmentedSharedBuffer>&& newEncodedData, bool destroyAll)
+{
+    // The contents of the new encoded data should match the contents of the old encoded data. This
+    // is intended to allow us to swap out a dirty copy of encoded data with a clean memory-mapped
+    // copy of encoded data backed by the disk cache.
+    ASSERT(m_encodedImageData && *m_encodedImageData == newEncodedData.get());
+    m_encodedImageData = WTF::move(newEncodedData);
+    destroyDecodedData(destroyAll);
+}
+#endif
+
 URL Image::sourceURL() const
 {
     return imageObserver() ? imageObserver()->sourceUrl() : URL();

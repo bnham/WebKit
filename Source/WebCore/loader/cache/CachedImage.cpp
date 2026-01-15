@@ -622,7 +622,12 @@ void CachedImage::didReplaceSharedBufferContents()
     if (RefPtr image = m_image) {
         // Let the Image know that the FragmentedSharedBuffer has been rejigged, so it can let go of any references to the heap-allocated resource buffer.
         // FIXME(rdar://problem/24275617): It would be better if we could somehow tell the Image's decoder to swap in the new contents without destroying anything.
+#if USE(CG)
+        RefPtr data = m_data;
+        image->replaceEncodedDataAndDestroyDecodedData(data.releaseNonNull(), true);
+#else
         image->destroyDecodedData(true);
+#endif
     }
     CachedResource::didReplaceSharedBufferContents();
 }
