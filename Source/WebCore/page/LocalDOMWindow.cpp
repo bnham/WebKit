@@ -170,6 +170,9 @@
 #include <wtf/NeverDestroyed.h>
 #include <wtf/Ref.h>
 #include <wtf/RuntimeApplicationChecks.h>
+#if PLATFORM(COCOA)
+#include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
+#endif
 #include <wtf/SetForScope.h>
 #include <wtf/SystemTracing.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -1583,13 +1586,58 @@ void LocalDOMWindow::overrideTransientActivationDurationForTesting(std::optional
     transientActivationDurationOverrideForTesting() = WTF::move(override);
 }
 
+// Whether a user gesture forced on behalf of the client (e.g. by evaluateJavaScript:) only gives transient activation
+// while it is the current user gesture. Clients linked against older SDKs keep it for as long as the gesture is alive.
+static bool forcedUserGestureTransientActivationIsScopedToScript()
+{
+#if PLATFORM(COCOA)
+    static bool isScopedToScript = linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::EvaluateJavaScriptTransientActivationScopedToScript);
+    return isScopedToScript;
+#else
+    return true;
+#endif
+}
+
+std::optional<MonotonicTime> LocalDOMWindow::lastForcedActivationTimestamp() const
+{
+    std::optional<MonotonicTime> timestamp;
+    for (auto& userGesture : m_activatingForcedUserGestures) {
+        if (!timestamp || userGesture.startTime() > *timestamp)
+            timestamp = userGesture.startTime();
+    }
+    return timestamp;
+}
+
 // When the current high resolution time is greater than or equal to the last activation timestamp in W, and
 // less than the last activation timestamp in W plus the transient activation duration, then W is said to
 // have transient activation. (https://html.spec.whatwg.org/multipage/interaction.html#transient-activation)
 bool LocalDOMWindow::hasTransientActivation() const
 {
     auto now = MonotonicTime::now();
-    return now >= m_lastActivationTimestamp && now < (m_lastActivationTimestamp + transientActivationDuration());
+    if (now >= m_lastActivationTimestamp && now < (m_lastActivationTimestamp + transientActivationDuration()))
+        return true;
+
+    if (!forcedUserGestureTransientActivationIsScopedToScript()) {
+        auto forcedActivationTimestamp = lastForcedActivationTimestamp();
+        return forcedActivationTimestamp && now < (*forcedActivationTimestamp + transientActivationDuration());
+    }
+
+    RefPtr userGesture = UserGestureIndicator::currentUserGesture();
+    return userGesture
+        && m_activatingForcedUserGestures.contains(*userGesture)
+        && now < (userGesture->startTime() + transientActivationDuration());
+}
+
+MonotonicTime LocalDOMWindow::lastActivationTimestamp() const
+{
+    if (!forcedUserGestureTransientActivationIsScopedToScript()) {
+        // By spec, m_lastActivationTimestamp is initialized to positive infinity (meaning the window has never been activated by the user).
+        bool hasNotBeenActivated = m_lastActivationTimestamp == MonotonicTime::infinity();
+        auto forcedActivationTimestamp = lastForcedActivationTimestamp();
+        if (forcedActivationTimestamp && (hasNotBeenActivated || *forcedActivationTimestamp > m_lastActivationTimestamp))
+            return *forcedActivationTimestamp;
+    }
+    return m_lastActivationTimestamp;
 }
 
 // https://html.spec.whatwg.org/multipage/interaction.html#sticky-activation
@@ -1617,11 +1665,11 @@ bool LocalDOMWindow::consumeTransientActivation()
         return false;
 
     RefPtr thisFrame = this->frame();
-    for (auto* frame = thisFrame ? &thisFrame->tree().top() : nullptr; frame; frame = frame->tree().traverseNext()) {
-        auto* localFrame = dynamicDowncast<LocalFrame>(frame);
+    for (RefPtr frame = thisFrame ? &thisFrame->tree().top() : nullptr; frame; frame = frame->tree().traverseNext()) {
+        RefPtr localFrame = dynamicDowncast<LocalFrame>(frame);
         if (!localFrame)
             continue;
-        if (auto* window = localFrame->window())
+        if (RefPtr window = localFrame->window())
             window->consumeLastActivationIfNecessary();
     }
 
@@ -1635,6 +1683,7 @@ void LocalDOMWindow::consumeLastActivationIfNecessary()
 {
     if (!m_lastActivationTimestamp.isInfinity())
         m_lastActivationTimestamp = -MonotonicTime::infinity();
+    m_activatingForcedUserGestures.clear();
 }
 
 // https://html.spec.whatwg.org/multipage/interaction.html#consume-history-action-user-activation
@@ -1667,25 +1716,39 @@ std::optional<LocalDOMWindow::ClickEventData> LocalDOMWindow::consumeLastUserCli
     return std::exchange(m_lastUserClickEvent, std::nullopt);
 }
 
-static void updateActivationTimestampAndNotify(LocalDOMWindow& window, MonotonicTime activationTime, bool closeWatcherEnabled)
+void LocalDOMWindow::updateActivationGesture(const UserGestureToken& userGesture)
 {
-    window.updateActivation(activationTime);
-    if (closeWatcherEnabled)
+    if (userGesture.removesTransientActivation()) {
+        m_activatingForcedUserGestures.add(userGesture);
+        if (!forcedUserGestureTransientActivationIsScopedToScript()) {
+            m_hasStickyActivation = true;
+            m_hasHistoryActionActivation = true;
+        }
+        return;
+    }
+
+    updateActivation(userGesture.startTime());
+}
+
+static void updateActivationTimestampAndNotify(LocalDOMWindow& window, const UserGestureToken& userGesture, bool closeWatcherEnabled)
+{
+    window.updateActivationGesture(userGesture);
+    if (closeWatcherEnabled && (!userGesture.removesTransientActivation() || !forcedUserGestureTransientActivationIsScopedToScript()))
         window.closeWatcherManager().notifyAboutUserActivation();
 }
 
 // https://html.spec.whatwg.org/multipage/interaction.html#activation-notification
-void LocalDOMWindow::notifyActivated(MonotonicTime activationTime)
+void LocalDOMWindow::notifyActivated(const UserGestureToken& userGesture)
 {
     RefPtr frame = this->frame();
     bool closeWatcherEnabled = frame && frame->settings().closeWatcherEnabled();
-    updateActivationTimestampAndNotify(*this, activationTime, closeWatcherEnabled);
+    updateActivationTimestampAndNotify(*this, userGesture, closeWatcherEnabled);
     if (!frame)
         return;
 
     for (Ref localAncestor : ancestorFrames<LocalFrame>(*frame)) {
         if (RefPtr window = localAncestor->window())
-            updateActivationTimestampAndNotify(*window, activationTime, closeWatcherEnabled);
+            updateActivationTimestampAndNotify(*window, userGesture, closeWatcherEnabled);
     }
 
     RefPtr securityOrigin = this->securityOrigin();
@@ -1705,11 +1768,14 @@ void LocalDOMWindow::notifyActivated(MonotonicTime activationTime)
         if (!descendantSecurityOrigin || !descendantSecurityOrigin->isSameOriginAs(*securityOrigin))
             continue;
 
-        updateActivationTimestampAndNotify(*descendantWindow, activationTime, closeWatcherEnabled);
+        updateActivationTimestampAndNotify(*descendantWindow, userGesture, closeWatcherEnabled);
     }
 
+    if (userGesture.removesTransientActivation())
+        return;
+
     if (RefPtr page = frame->page(); page && page->mainFrame().tree().containsRemoteFrame())
-        frame->loader().client().didNotifyUserActivation(activationTime);
+        frame->loader().client().didNotifyUserActivation(userGesture.startTime());
 }
 
 StyleMedia& LocalDOMWindow::styleMedia()
